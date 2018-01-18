@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
-""" Underdamped Langinvin dynamics based MCMC samplers. """
+""" Underdamped Langinvin dynamics based MCMC samplers.
+    HongZhang 14/01/2018
+ """
 
 import logging
 import numpy as np
@@ -147,6 +149,22 @@ class AbstractULDSampler(object):
         new_vel = new_point[len(pos):]
         return new_pos, new_vel
 
+    def simulate_dynamics_nsteps(self, dt, pos, vel, steps):
+        """
+        simulate the dynamics n steps
+        """
+        for s in range(steps):
+            try:
+                pos_next, vel_next = self.simulate_dynamic(
+                    dt, pos, vel)
+                pos, vel = pos_next, vel_next
+            except DynamicsError as e:
+                logger.info('Error occured when simulating dynamic. '
+                            'Rejecting.\n' + str(e))
+        return pos_next, vel_next
+
+
+
 
     def sample_independent_momentum_given_position(self, pos, cache={}):
         """
@@ -241,7 +259,7 @@ class AbstractULDSampler(object):
         return (self.energy_func(pos, cache) +
                 self.kinetic_energy(pos, mom, cache))
 
-    def get_samples(self, pos, dt, n_sample):
+    def get_samples(self, pos, dt, n_sample, burn_in=100, sample_gap = 10):
         """
         Run ULD sampler and return state samples.
 
@@ -260,8 +278,11 @@ class AbstractULDSampler(object):
             proposal.
         n_sample : positive integer
             Number of MCMC samples to return (including initial state).
-        mom : vector
-            Optional initial momentum state. If not provided randomly sampled.
+        burn_in: positive integer
+            Number of steps before collectin samples
+        sample_gap: positive integer
+            every #sample_gap samples to collect one sample
+
 
         Returns
         -------
@@ -289,16 +310,18 @@ class AbstractULDSampler(object):
 
         # hamiltonian_c = self.hamiltonian(pos, mom, cache)
         # n_reject = 0
-
+        pos , vel = pos_samples[0], vel_samples[0]
+        #burn in step
+        pos_samples[0], vel_samples[0] = self.simulate_dynamics_nsteps(dt, pos,vel,burn_in)
         for s in range(1, n_sample):
             # if randomise_steps:
             #     n_step_per_sample = self.prng.random_integers(
                     # step_interval_lower, step_interval_upper)
             # simulate Hamiltonian dynamic to get new state pair proposal
             try:
-                pos_p, vel_p = self.simulate_dynamic(
+                pos_p, vel_p = self.simulate_dynamics_nsteps(
                     dt, pos_samples[s-1],
-                    vel_samples[s-1])
+                    vel_samples[s-1], sample_gap)
                 # hamiltonian_p = self.hamiltonian(pos_p, mom_p, cache_p)
                 proposal_successful = True
             except DynamicsError as e:
